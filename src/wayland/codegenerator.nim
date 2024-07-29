@@ -99,6 +99,19 @@ for face in doc.findall("interface"):
                 )
             )
         else:
+          let tup = nkTupleConstr.newNode
+          for arg in subnodeArgs:
+            tup.add arg.ident
+          let call = nkCall.newTree(
+                ident"request",
+                ident"obj",
+                nkDotExpr.newTree(
+                    subnodeName.capitalizeAscii.ident,
+                    ident"uint32",
+                  )
+              )
+          if tup.len > 0:
+            call.add tup
           module.add nkProcDef.newTree(
               exportId,
               newEmpty(),
@@ -106,9 +119,7 @@ for face in doc.findall("interface"):
               procArgs,
               newEmpty(),
               newEmpty(),
-              nkStmtList.newTree(
-                  nkDiscardStmt.newTree(newEmpty()),
-                )
+              nkStmtList.newTree(call),
             )
 
     if enumTy.len > 1:
