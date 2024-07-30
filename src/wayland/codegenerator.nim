@@ -32,7 +32,7 @@ let
   module = nkStmtList.newNode()
   typeSection = nkTypeSection.newNode
 
-module.add nkImportStmt.newTree(ident"pkg/wayland/objects")
+module.add nkImportStmt.newTree(ident"pkg/wayland/clients")
 module.add typeSection
 
 type RequestArg = tuple
@@ -107,11 +107,10 @@ for face in doc.findall("interface"):
                 ident"obj",
                 nkDotExpr.newTree(
                     subnodeName.capitalizeAscii.ident,
-                    ident"uint32",
-                  )
+                    ident"uint16",
+                  ),
+                tup,
               )
-          if tup.len > 0:
-            call.add tup
           module.add nkProcDef.newTree(
               exportId,
               newEmpty(),
