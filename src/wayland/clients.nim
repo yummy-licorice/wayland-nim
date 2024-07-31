@@ -21,25 +21,6 @@ type
   Opcode* = uint16
 
   SignedDecimal* = distinct uint32
-  ItemKind {.pure.} = enum
-    integer, decimal, string, obj, newId, sequence, fd
-  Item* = object
-    case kind*: ItemKind
-    of integer:
-      integer: uint32
-    of decimal:
-      decimal: SignedDecimal
-    of string:
-      string: string
-    of obj:
-      obj: Wl_object
-    of newId:
-      newid: Oid
-    of sequence:
-      sequence: Sequence
-    of fd:
-      fd: cint
-  Sequence* = seq[Item]
 
   Message* = object
     buf: seq[uint32]
@@ -56,6 +37,8 @@ func `==`*(a, b: Oid): bool {.borrow.}
 proc `$`*(oid: Oid): string {.borrow.}
 
 func `==`*(a, b: SignedDecimal): bool {.borrow.}
+
+proc `$`*(obj: Wl_object): string = "Wl_object"
 
 proc newUnknownEventError*(face: static[string]; opcode: Opcode): ref ProtocolError =
   new result
@@ -79,7 +62,7 @@ when not defined(release):
       ]
     if msg.size > 8:
       result.add " "
-      result.add msg.buf[3].toHex(8)
+      result.add msg.buf[2].toHex(8)
       if msg.size > 12:
         result.add "…"
 
@@ -109,17 +92,20 @@ proc initMessage(oid: Oid; op: Opcode; wordLen: int): Message =
 
 func wordLen(x: SomeInteger | Oid | Wl_object): int = 1
 
-proc add(msg: var Message; n: SomeUnsignedInt) =
+proc marshall(msg: var Message; n: SomeUnsignedInt) =
+  assert n < uint32.high
   let posW = msg.wordPos
   msg.buf[posW] = uint32 n
   msg.wordSize = posW.succ
 
-proc add(msg: var Message; n: SomeSignedInt) =
-  msg.add cast[uint32](int32 n)
+proc marshall(msg: var Message; n: SomeSignedInt) =
+  assert n < int32.high
+  assert n > int32.low
+  marshall(msg, cast[uint32](int32 n))
 
 func wordLen(s: string): int = (s.len + 4) and not(3)
 
-proc add(msg: var Message; s: string) =
+proc marshall(msg: var Message; s: string) =
   let
     posW = msg.wordPos
     sLenB = s.len.succ # Add one for null termination.
@@ -130,17 +116,18 @@ proc add(msg: var Message; s: string) =
   copyMem(msg.buf[posW.succ].addr, s[0].addr, s.len)
   msg.wordSize = msgLenW
 
-proc add(msg: var Message; oid: Oid) {.inline.} =
-  msg.add oid.uint32
+proc marshall(msg: var Message; oid: Oid) {.inline.} =
+  marshall(msg, oid.uint32)
 
-proc add(msg: var Message; obj: Wl_object) {.inline.} =
-  msg.add obj.oid
+proc marshall(msg: var Message; obj: Wl_object) {.inline.} =
+  marshall(msg, obj.oid)
 
 template write(s: Socket; p: pointer; n: int): int =
   ## Fuck type safety theatre.
   write(s, cast[ptr UncheckedArray[byte]](p), n)
 
 proc sendRequest(client: Client; msg: Message) {.cps: Continuation.} =
+  stderr.writeLine "C: ", msg
   let n = msg.size
   if client.sock.write(msg.buf[0].addr, n) != n:
     raise newException(IOError, "failed to send Wayland message")
@@ -157,7 +144,8 @@ proc request*(obj: Wl_object; op: Opcode; args: tuple) =
     totalWords.inc n
   var msg = initMessage(obj.oid, op, totalWords)
   for f in args.fields:
-    msg.add f
+    marshall(msg, f)
+  assert totalWords <= msg.buf.len
   request(obj.client, msg)
 
 proc `[]`(client; oid): Wl_object =

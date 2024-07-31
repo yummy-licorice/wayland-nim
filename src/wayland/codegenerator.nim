@@ -90,19 +90,13 @@ for face in doc.findall("interface"):
     objId = ident"obj"
     msgId = ident"msg"
     eventCaseStmt = nkCaseStmt.newTree(dotExpr(msgId, ident"opcode"))
-  var opcode = 0
+  var eventCode, requestCode: int
   for subnode in face.items:
     if subnode.kind == xnElement and (subnode.tag == "request" or subnode.tag == "event"):
       let
         subnodeArgs = subnode.findAll("arg").map(parseRequestArg)
         subnodeName = subnode.attr("name")
         opcodeId = ident(faceName & "_" & subnodeName)
-      constSection.add nkConstDef.newTree(
-          opcodeId.exported,
-          newEmpty(),
-          opcode.newLit(),
-        )
-      inc opcode
       let procArgs = nkFormalParams.newTree(
           newEmpty(),
           nkIdentDefs.newTree(
@@ -115,6 +109,12 @@ for face in doc.findall("interface"):
         procArgs.add arg.paramDef
       let exportId = subnodeName.ident.accQuote.exported
       if subnode.tag == "event":
+        constSection.add nkConstDef.newTree(
+            opcodeId.exported,
+            newEmpty(),
+            eventCode.newLit(),
+          )
+        eventCode.inc()
         let
           argsId = ident"args"
           argsTuple = nkTupleConstr.newNode()
@@ -146,10 +146,19 @@ for face in doc.findall("interface"):
             nkPragma.newTree(ident "base"),
             newEmpty(),
             nkStmtList.newTree(
-                nkDiscardStmt.newTree(newEmpty()),
+                nkCall.newTree(
+                    ident"raiseAssert",
+                    newLit(faceName & "." & subnodeName & " not implemented"),
+                  )
               )
           )
       else:
+        constSection.add nkConstDef.newTree(
+            opcodeId.exported,
+            newEmpty(),
+            requestCode.newLit(),
+          )
+        requestCode.inc()
         let tup = nkTupleConstr.newNode
         for arg in subnodeArgs:
           tup.add arg.ident
