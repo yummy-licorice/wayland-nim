@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: Unlicense
 
 import
-  pkg/balls,
+  # pkgs/balls,
   pkg/sys/ioqueue,
   pkg/wayland
 
-suite "basic":
+# suite "basic":
+block:
   let wl = wayland.newClient()
   let path = wayland.socketPath()
   echo "connect to ", path
