@@ -11,7 +11,7 @@ import
 block:
   let wl = wayland.newClient()
   let path = wayland.socketPath()
-  # checkpoint path
+  echo "connect to ", path
   wl.connect(path)
 
   ## Client dispatching

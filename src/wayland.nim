@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Unlicense
 
 import
-  std/[options, os, oserrors, posix, strutils, typetraits],
+  std/os,
   pkg/sys/ioqueue,
   ./wayland/[clients, globals]
 

@@ -18,6 +18,8 @@ type
     oid: Oid
 
   Oid* = distinct uint32
+  Opcode* = uint16
+
   SignedDecimal* = distinct uint32
   ItemKind {.pure.} = enum
     integer, decimal, string, obj, newId, sequence, fd
@@ -42,6 +44,9 @@ type
   Message* = object
     buf: seq[uint32]
 
+  ProtocolError* = object of CatchableError
+    opcode*: Opcode
+
 using client: Client
 using obj: Wl_object
 using oid: Oid
@@ -50,11 +55,18 @@ using msg: Message
 func `==`*(a, b: Oid): bool {.borrow.}
 proc `$`*(oid: Oid): string {.borrow.}
 
+func `==`*(a, b: SignedDecimal): bool {.borrow.}
+
+proc newUnknownEventError*(face: static[string]; opcode: Opcode): ref ProtocolError =
+  new result
+  result.msg = "unknown event at " & face
+  result.opcode = opcode
+
 proc oid*(msg: Message): Oid  {.inline.} = msg.buf[0].Oid
 
 proc size*(msg: Message): int  {.inline.} = int(msg.buf[1] shr 16)
 
-proc opcode*(msg: Message): uint16 {.inline.} = msg.buf[1].uint16
+proc opcode*(msg: Message): Opcode {.inline.} = msg.buf[1].uint16
 
 when not defined(release):
   import std/strutils
@@ -81,14 +93,14 @@ proc `size=`*(msg: var Message; n: Natural) {.inline.} =
 proc `wordSize=`*(msg: var Message; n: Natural) {.inline.} =
   msg.size = n shl 2
 
-proc `oid`*(obj: Wl_object): Oid =
+proc `oid`*(obj): Oid =
   obj.oid
 
-proc `oid=`*(obj: Wl_object; id: Oid) =
+proc `oid=`*(obj; id: Oid) =
   assert obj.oid == Oid(0), "object oid already set"
   obj.oid = id
 
-proc initMessage(oid: Oid; op: uint16; wordLen: int): Message =
+proc initMessage(oid: Oid; op: Opcode; wordLen: int): Message =
   assert wordLen >= 2
   result.buf.setLen(wordLen)
   result.buf[0] = oid.uint32
@@ -136,9 +148,9 @@ proc sendRequest(client: Client; msg: Message) {.cps: Continuation.} =
 proc request(client: Client; msg: Message) =
   sendRequest(client, msg)
 
-proc request*(obj: Wl_object; op: uint16; args: tuple) =
+proc request*(obj: Wl_object; op: Opcode; args: tuple) =
   var totalWords = 2
-  for f in args.fields:
+  for f in fields(args):
     let n = f.wordLen
     echo f.typeOf, " is ", n, " words in length"
     assert n > 0
@@ -148,9 +160,6 @@ proc request*(obj: Wl_object; op: uint16; args: tuple) =
     msg.add f
   request(obj.client, msg)
 
-method dispatch(wlo: Wl_object; msg: Message) {.base.} =
-  echo "server sends ", msg
-
 proc `[]`(client; oid): Wl_object =
   var i = oid.int
   if 0 < i and i < client.binds.len:
@@ -158,6 +167,38 @@ proc `[]`(client; oid): Wl_object =
     assert result.oid == oid
   else:
     raise newException(KeyError, "Wayland object ID not registered locally")
+
+proc unmarshal[T: int|uint|Oid|SignedDecimal](client; msg: Message; woff: int; n: var T): int =
+  result = 1
+  n = msg.buf[woff].T
+
+proc unmarshal(client; msg; woff: int; s: var string): int =
+  let len = msg.buf[woff].int
+  assert len < 0x1000
+  s.setLen len.pred
+  if s.len > 0:
+    copyMem(s[0].addr, msg.buf[woff.succ].addr, s.len)
+  succ((len + 3) shr 2)
+
+proc unmarshal(client; msg; woff: int; warr: var seq[uint32]): int =
+  warr.setLen(msg.buf[woff])
+  result = 1 + warr.len
+  assert msg.buf.len <= woff + result
+  copyMem(warr[0].addr, msg.buf[woff.succ].addr, warr.len shl 2)
+
+proc unmarshal*(obj; msg; args: var tuple) =
+  var off = 2
+  for arg in args.fields:
+    when arg is Wl_object:
+      arg = (typeof arg) obj.client[msg.buf[off].Oid]
+      off.inc
+    else:
+      off.inc unmarshal(obj.client, msg, off, arg)
+  echo "unmarshalled ", off, " words"
+  assert (off shl 2) == msg.size
+
+method dispatchEvent(wlo: Wl_object; msg: Message) {.base.} =
+  raiseAssert "dispatchEvent not implemented for this object"
 
 proc bindObject*(client; obj: Wl_object) =
   assert obj.client.isNil
@@ -173,28 +214,37 @@ template read(s: Socket; p: pointer; n: int): int =
   ## Fuck type safety theatre.
   read(s, cast[ptr UncheckedArray[byte]](p), n)
 
+proc close*(client) =
+  client.alive = false
+  client.sock.close()
+
 proc dispatch*(client: Client) {.asyncio.} =
   echo "dispatch client"
-  var msg: Message
+  var msg = Message(buf: newSeq[uint32](0x400))
   assert client.alive
   while client.alive:
     var n = client.sock.read(msg.buf[0].addr, 8)
     if n != 8:
       raise newException(IOError, "failed to read Wayland message header")
     stderr.writeLine "S: ", $msg
-    echo "server message size is ", msg.size
     let msgLen = msg.size
     if msgLen < 8:
       raise newException(IOError, "Wayland message size is too small")
     elif (msgLen and 3) != 0:
       raise newException(IOError, "Wayland message size is misaligned")
     elif msgLen > 8:
-      msg.buf.setLen(msgLen shr 2)
+      let wordLen = msgLen shr 2
+      if msg.buf.len < wordLen:
+        msg.buf.setLen(wordLen)
       n.inc client.sock.read(msg.buf[2].addr, msg.size.int - 8)
-      if n != msg.size.int: raise newException(IOError, "Invalid read of Wayland socket. Read " & $n & " bytes of " & $msg.size)
+      if n != msgLen: raise newException(IOError, "Invalid read of Wayland socket. Read " & $n & " bytes of " & $msgLen)
     let obj = client[msg.oid]
-    if not obj.isNil:
-      obj.dispatch(msg)
+    if obj.isNil:
+      client.close()
+      raise newException(IOError, "Wayland event received for non-existent object")
+    else:
+      echo "dispatch event ", msg.opcode
+      obj.dispatchEvent(msg)
   echo "client not alive"
 
 proc connectSocket*(client: Client; path: string) {.asyncio.} =
@@ -204,39 +254,3 @@ proc connectSocket*(client: Client; path: string) {.asyncio.} =
   client.alive = true
   client.binds.setLen(1)
   client.binds[0] = nil
-
-proc close*(client) =
-  client.sock.close()
-
-#[
-type
-  Header {.packed.} = object
-    oid: Oid
-    opcode, size: uint16
-
-proc unmarshalArg(msg: Message; woff: int; n: var int): int =
-  n = msg.buf[woff].int
-  1
-
-proc unmarshalArg(msg: Message; woff: int; s: var string): int =
-  let len = msg.buf[woff].int
-  assert len < 0x1000
-  s.setLen len.pred
-  if s.len > 0:
-    copyMem(s[0].addr, msg.buf[woff.succ].addr, s.len)
-  succ((len + 3) shr 2)
-
-template unmarshal[T: tuple](msg: Message; args: var T) =
-  echo "unmarshall ", msg.size shr 2, " words (", msg.size, ")"
-  var i = 2 # Word offset after header.
-  for f in args.fields:
-    i.inc unmarshalArg(msg, i, f)
-  echo "unmarshalled ", i, " words"
-  assert (i shl 2) == msg.size, "unmarshalled " & $(i shl 2) & " bytes"
-
-proc send(client: Client; msg: Message) {.asyncio.} =
-  stderr.writeLine "C: ", $msg
-  doAssert client.sock.write(msg.buf[0].addr, msg.size) == msg.hdr.size.int
-
-
-]#
