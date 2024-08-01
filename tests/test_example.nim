@@ -3,6 +3,7 @@
 
 import
   # pkgs/balls,
+  std/strutils,
   pkg/sys/ioqueue,
   pkg/wayland
 
@@ -11,25 +12,43 @@ type
     discard
 
 type
+  Shm {.final.} = ref object of Wl_shm
+
+method format(shm: Shm; format: uint) =
+  echo "wl_shm format is ", format.toHex
+
+type
+  Compositor {.final.} = ref object of Wl_compositor
+    test: TestState
+
+  Registry {.final.} = ref object of Wl_registry
+    test: TestState
+    comp: Compositor
+    shm: Shm
+
+method global(reg: Registry; name: uint; face: string; version: uint) =
+  ## Handle global objects.
+  echo "server announces global ", face, " v", version
+  case face
+  of "wl_compositor":
+    assert reg.comp.isNil
+    reg.comp = Compositor(test: reg.test)
+    reg.client.bindObject(reg.comp)
+    reg.bind(name, face, version, reg.comp.oid)
+  of "wl_shm":
+    assert reg.shm.isNil
+    reg.shm = Shm()
+    reg.client.bindObject(reg.shm)
+    reg.bind(name, face, version, reg.shm.oid)
+  else:
+    discard
+
+type
   Display {.final.} = ref object of Wl_display
     test: TestState
 
 method error(obj: Display; object_id: Oid; code: uint; message: string) =
   raise newException(ProtocolError, message)
-
-type
-  Registry {.final.} = ref object of Wl_registry
-    test: TestState
-    globals*: seq[GlobalEntry]
-
-  GlobalEntry = object
-    face: string
-    name: uint
-    version: uint
-
-method global(reg: Registry; n: uint; f: string; v: uint) =
-  echo "new global at ", n, " - ", f, "-", v
-  reg.globals.add GlobalEntry(face: f, name: n, version: v)
 
 # suite "basic":
 block:

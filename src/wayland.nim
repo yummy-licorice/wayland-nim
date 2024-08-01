@@ -8,8 +8,7 @@ import
   pkg/sys/ioqueue,
   ./wayland/[clients, globals]
 
-export Oid, ProtocolError, bindObject, dispatch, newClient
-export globals
+export clients, globals
 
 proc socketPath*: string =
   ## Determine a reasonable location for the Wayland socket.

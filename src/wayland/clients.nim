@@ -97,7 +97,7 @@ proc `size=`*(msg: var Message; n: Natural) {.inline.} =
 proc `wordSize=`*(msg: var Message; n: Natural) {.inline.} =
   msg.size = n shl 2
 
-proc `oid`*(obj: Wl_object): Oid =
+proc oid*(obj: Wl_object): Oid =
   obj.oid
 
 proc client*(obj: Wl_object): Client =
@@ -130,7 +130,7 @@ proc marshal(msg: var Message; s: string) =
   let
     posW = msg.wordPos
     sLenB = s.len.succ # Add one for null termination.
-    sLenW = (sLenB + 3) shl 2 # Length in words, rounded up.
+    sLenW = (sLenB + 3) shr 2 # Length in words, rounded up.
     msgLenW = posW + 1 + sLenW
   msg.buf[posW] = sLenB.uint32
   msg.buf[msgLenW.pred] = 0 # Nullify the padding word.
@@ -157,8 +157,8 @@ proc request(client: Client; msg: Message) =
 proc request*(obj: Wl_object; op: Opcode; args: tuple) =
   ## Send an `op` request message to `obj` with `args`.
   var totalWords = 2
-  for f in fields(args):
-    let n = f.wordLen
+  for arg in fields(args):
+    let n = arg.wordLen
     assert n > 0
     totalWords.inc n
   var msg = initMessage(obj.oid, op, totalWords)

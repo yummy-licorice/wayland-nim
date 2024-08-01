@@ -175,6 +175,12 @@ type
   
   Wl_subsurface* = ref object of Wl_object
   
+func face*(obj: Wl_display): string =
+  "wl_display"
+
+func version*(obj: Wl_display): uint =
+  1
+
 proc `sync`*(obj: Wl_display; `callback`: Wl_callback) =
   request(obj, wl_display_sync, (`callback`,))
 
@@ -201,8 +207,15 @@ method dispatchEvent*(obj: Wl_display; msg: Message) =
   else:
     raise newUnknownEventError("wl_display", msg.opcode)
 
-proc `bind`*(obj: Wl_registry; `name`: uint; `id`: Oid) =
-  request(obj, wl_registry_bind, (`name`, `id`))
+func face*(obj: Wl_registry): string =
+  "wl_registry"
+
+func version*(obj: Wl_registry): uint =
+  1
+
+proc `bind`*(obj: Wl_registry; `name`: uint; `face`: string; `version`: uint;
+             `oid`: Oid) =
+  request(obj, wl_registry_bind, (`name`, `face`, `version`, `oid`))
 
 method `global`*(obj: Wl_registry; `name`: uint; `interface`: string;
                  `version`: uint) {.base.} =
@@ -224,6 +237,12 @@ method dispatchEvent*(obj: Wl_registry; msg: Message) =
   else:
     raise newUnknownEventError("wl_registry", msg.opcode)
 
+func face*(obj: Wl_callback): string =
+  "wl_callback"
+
+func version*(obj: Wl_callback): uint =
+  1
+
 method `done`*(obj: Wl_callback; `callback_data`: uint) {.base.} =
   raiseAssert("wl_callback.done not implemented")
 
@@ -236,11 +255,23 @@ method dispatchEvent*(obj: Wl_callback; msg: Message) =
   else:
     raise newUnknownEventError("wl_callback", msg.opcode)
 
+func face*(obj: Wl_compositor): string =
+  "wl_compositor"
+
+func version*(obj: Wl_compositor): uint =
+  6
+
 proc `create_surface`*(obj: Wl_compositor; `id`: Wl_surface) =
   request(obj, wl_compositor_create_surface, (`id`,))
 
 proc `create_region`*(obj: Wl_compositor; `id`: Wl_region) =
   request(obj, wl_compositor_create_region, (`id`,))
+
+func face*(obj: Wl_shm_pool): string =
+  "wl_shm_pool"
+
+func version*(obj: Wl_shm_pool): uint =
+  2
 
 proc `create_buffer`*(obj: Wl_shm_pool; `id`: Wl_buffer; `offset`: int;
                       `width`: int; `height`: int; `stride`: int; `format`: uint) =
@@ -252,6 +283,12 @@ proc `destroy`*(obj: Wl_shm_pool) =
 
 proc `resize`*(obj: Wl_shm_pool; `size`: int) =
   request(obj, wl_shm_pool_resize, (`size`,))
+
+func face*(obj: Wl_shm): string =
+  "wl_shm"
+
+func version*(obj: Wl_shm): uint =
+  2
 
 proc `create_pool`*(obj: Wl_shm; `id`: Wl_shm_pool; `fd`: cint; `size`: int) =
   request(obj, wl_shm_create_pool, (`id`, `fd`, `size`))
@@ -271,6 +308,12 @@ method dispatchEvent*(obj: Wl_shm; msg: Message) =
   else:
     raise newUnknownEventError("wl_shm", msg.opcode)
 
+func face*(obj: Wl_buffer): string =
+  "wl_buffer"
+
+func version*(obj: Wl_buffer): uint =
+  1
+
 proc `destroy`*(obj: Wl_buffer) =
   request(obj, wl_buffer_destroy, ())
 
@@ -283,6 +326,12 @@ method dispatchEvent*(obj: Wl_buffer; msg: Message) =
     obj.`release`()
   else:
     raise newUnknownEventError("wl_buffer", msg.opcode)
+
+func face*(obj: Wl_data_offer): string =
+  "wl_data_offer"
+
+func version*(obj: Wl_data_offer): uint =
+  3
 
 proc `accept`*(obj: Wl_data_offer; `serial`: uint; `mime_type`: string) =
   request(obj, wl_data_offer_accept, (`serial`, `mime_type`))
@@ -325,6 +374,12 @@ method dispatchEvent*(obj: Wl_data_offer; msg: Message) =
     obj.`action`(args[0])
   else:
     raise newUnknownEventError("wl_data_offer", msg.opcode)
+
+func face*(obj: Wl_data_source): string =
+  "wl_data_source"
+
+func version*(obj: Wl_data_source): uint =
+  3
 
 proc `offer`*(obj: Wl_data_source; `mime_type`: string) =
   request(obj, wl_data_source_offer, (`mime_type`,))
@@ -375,6 +430,12 @@ method dispatchEvent*(obj: Wl_data_source; msg: Message) =
     obj.`action`(args[0])
   else:
     raise newUnknownEventError("wl_data_source", msg.opcode)
+
+func face*(obj: Wl_data_device): string =
+  "wl_data_device"
+
+func version*(obj: Wl_data_device): uint =
+  3
 
 proc `start_drag`*(obj: Wl_data_device; `source`: Wl_data_source;
                    `origin`: Wl_surface; `icon`: Wl_surface; `serial`: uint) =
@@ -434,6 +495,12 @@ method dispatchEvent*(obj: Wl_data_device; msg: Message) =
   else:
     raise newUnknownEventError("wl_data_device", msg.opcode)
 
+func face*(obj: Wl_data_device_manager): string =
+  "wl_data_device_manager"
+
+func version*(obj: Wl_data_device_manager): uint =
+  3
+
 proc `create_data_source`*(obj: Wl_data_device_manager; `id`: Wl_data_source) =
   request(obj, wl_data_device_manager_create_data_source, (`id`,))
 
@@ -441,9 +508,21 @@ proc `get_data_device`*(obj: Wl_data_device_manager; `id`: Wl_data_device;
                         `seat`: Wl_seat) =
   request(obj, wl_data_device_manager_get_data_device, (`id`, `seat`))
 
+func face*(obj: Wl_shell): string =
+  "wl_shell"
+
+func version*(obj: Wl_shell): uint =
+  1
+
 proc `get_shell_surface`*(obj: Wl_shell; `id`: Wl_shell_surface;
                           `surface`: Wl_surface) =
   request(obj, wl_shell_get_shell_surface, (`id`, `surface`))
+
+func face*(obj: Wl_shell_surface): string =
+  "wl_shell_surface"
+
+func version*(obj: Wl_shell_surface): uint =
+  1
 
 proc `pong`*(obj: Wl_shell_surface; `serial`: uint) =
   request(obj, wl_shell_surface_pong, (`serial`,))
@@ -505,6 +584,12 @@ method dispatchEvent*(obj: Wl_shell_surface; msg: Message) =
     obj.`popup_done`()
   else:
     raise newUnknownEventError("wl_shell_surface", msg.opcode)
+
+func face*(obj: Wl_surface): string =
+  "wl_surface"
+
+func version*(obj: Wl_surface): uint =
+  6
 
 proc `destroy`*(obj: Wl_surface) =
   request(obj, wl_surface_destroy, ())
@@ -573,6 +658,12 @@ method dispatchEvent*(obj: Wl_surface; msg: Message) =
   else:
     raise newUnknownEventError("wl_surface", msg.opcode)
 
+func face*(obj: Wl_seat): string =
+  "wl_seat"
+
+func version*(obj: Wl_seat): uint =
+  9
+
 method `capabilities`*(obj: Wl_seat; `capabilities`: uint) {.base.} =
   raiseAssert("wl_seat.capabilities not implemented")
 
@@ -603,6 +694,12 @@ method dispatchEvent*(obj: Wl_seat; msg: Message) =
     obj.`name`(args[0])
   else:
     raise newUnknownEventError("wl_seat", msg.opcode)
+
+func face*(obj: Wl_pointer): string =
+  "wl_pointer"
+
+func version*(obj: Wl_pointer): uint =
+  9
 
 proc `set_cursor`*(obj: Wl_pointer; `serial`: uint; `surface`: Wl_surface;
                    `hotspot_x`: int; `hotspot_y`: int) =
@@ -697,6 +794,12 @@ method dispatchEvent*(obj: Wl_pointer; msg: Message) =
   else:
     raise newUnknownEventError("wl_pointer", msg.opcode)
 
+func face*(obj: Wl_keyboard): string =
+  "wl_keyboard"
+
+func version*(obj: Wl_keyboard): uint =
+  9
+
 method `keymap`*(obj: Wl_keyboard; `format`: uint; `fd`: cint; `size`: uint) {.
     base.} =
   raiseAssert("wl_keyboard.keymap not implemented")
@@ -751,6 +854,12 @@ method dispatchEvent*(obj: Wl_keyboard; msg: Message) =
     obj.`repeat_info`(args[0], args[1])
   else:
     raise newUnknownEventError("wl_keyboard", msg.opcode)
+
+func face*(obj: Wl_touch): string =
+  "wl_touch"
+
+func version*(obj: Wl_touch): uint =
+  9
 
 method `down`*(obj: Wl_touch; `serial`: uint; `time`: uint;
                `surface`: Wl_surface; `id`: int; `x`: SignedDecimal;
@@ -810,6 +919,12 @@ method dispatchEvent*(obj: Wl_touch; msg: Message) =
   else:
     raise newUnknownEventError("wl_touch", msg.opcode)
 
+func face*(obj: Wl_output): string =
+  "wl_output"
+
+func version*(obj: Wl_output): uint =
+  4
+
 method `geometry`*(obj: Wl_output; `x`: int; `y`: int; `physical_width`: int;
                    `physical_height`: int; `subpixel`: int; `make`: string;
                    `model`: string; `transform`: int) {.base.} =
@@ -862,6 +977,12 @@ method dispatchEvent*(obj: Wl_output; msg: Message) =
   else:
     raise newUnknownEventError("wl_output", msg.opcode)
 
+func face*(obj: Wl_region): string =
+  "wl_region"
+
+func version*(obj: Wl_region): uint =
+  1
+
 proc `destroy`*(obj: Wl_region) =
   request(obj, wl_region_destroy, ())
 
@@ -871,12 +992,24 @@ proc `add`*(obj: Wl_region; `x`: int; `y`: int; `width`: int; `height`: int) =
 proc `subtract`*(obj: Wl_region; `x`: int; `y`: int; `width`: int; `height`: int) =
   request(obj, wl_region_subtract, (`x`, `y`, `width`, `height`))
 
+func face*(obj: Wl_subcompositor): string =
+  "wl_subcompositor"
+
+func version*(obj: Wl_subcompositor): uint =
+  1
+
 proc `destroy`*(obj: Wl_subcompositor) =
   request(obj, wl_subcompositor_destroy, ())
 
 proc `get_subsurface`*(obj: Wl_subcompositor; `id`: Wl_subsurface;
                        `surface`: Wl_surface; `parent`: Wl_surface) =
   request(obj, wl_subcompositor_get_subsurface, (`id`, `surface`, `parent`))
+
+func face*(obj: Wl_subsurface): string =
+  "wl_subsurface"
+
+func version*(obj: Wl_subsurface): uint =
+  1
 
 proc `destroy`*(obj: Wl_subsurface) =
   request(obj, wl_subsurface_destroy, ())
