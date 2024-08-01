@@ -1,12 +1,19 @@
 # SPDX-FileCopyrightText: ☭ Emery Hemingway
 # SPDX-License-Identifier: Unlicense
 
+## This module implements sending requests and handling events
+## on a Wayland socket.
+
+const traceWayland {.booldefine.}: bool = false
+
 import
   pkg/cps,
   pkg/sys/[ioqueue, sockets]
 
 type
   Client* = ref object
+    ## Object containing a socket and bindings between
+    ## ids on the wire and object local objects.
     binds: seq[Wl_object]
     sock: Socket
     alive: bool
@@ -14,18 +21,29 @@ type
   Socket = AsyncConn[sockets.Protocol.Unix]
 
   Wl_object* = ref object of RootObj
+    ## Base object of all local Wayland objects.
+    ## Objects inheriting this must implement
+    ## the `dispatchEvent` event.
     client: Client
     oid: Oid
 
   Oid* = distinct uint32
+    ## Object-identifier.
+
   Opcode* = uint16
+    ## Opcode for requests and events.
 
   SignedDecimal* = distinct uint32
+    ## Signed 24.8 decimal numbers.
+    ## It is a signed decimal type which offers a sign bit,
+    ## 23 bits of integer precision and 8 bits of decimal precision.
 
   Message* = object
+    ## Complete message buffer to recieve or send on a socket.
     buf: seq[uint32]
 
   ProtocolError* = object of CatchableError
+    ## Exception for Wayland protocol errors.
     opcode*: Opcode
 
 using client: Client
@@ -46,12 +64,15 @@ proc newUnknownEventError*(face: static[string]; opcode: Opcode): ref ProtocolEr
   result.opcode = opcode
 
 proc oid*(msg: Message): Oid  {.inline.} = msg.buf[0].Oid
+  ## Accessor for message destination object id.
 
 proc size*(msg: Message): int  {.inline.} = int(msg.buf[1] shr 16)
+  ## Accessor for message size in bytes.
 
 proc opcode*(msg: Message): Opcode {.inline.} = msg.buf[1].uint16
+  ## Accessor for message opcode.
 
-when not defined(release):
+when traceWayland:
   import std/strutils
   proc `$`*(msg: Message): string =
     result = "$1 $2 ($3 $4)" % [
@@ -76,36 +97,36 @@ proc `size=`*(msg: var Message; n: Natural) {.inline.} =
 proc `wordSize=`*(msg: var Message; n: Natural) {.inline.} =
   msg.size = n shl 2
 
-proc `oid`*(obj): Oid =
+proc `oid`*(obj: Wl_object): Oid =
   obj.oid
 
-proc `oid=`*(obj; id: Oid) =
-  assert obj.oid == Oid(0), "object oid already set"
-  obj.oid = id
+proc client*(obj: Wl_object): Client =
+  ## Access the `Client` that `obj` is bound to.
+  assert not obj.client.isNil
+  obj.client
 
 proc initMessage(oid: Oid; op: Opcode; wordLen: int): Message =
   assert wordLen >= 2
   result.buf.setLen(wordLen)
   result.buf[0] = oid.uint32
   result.buf[1] = (8 shl 16) or op.uint32
-  echo "message to ", oid, " is ", wordLen, " words and ", result.size, " bytes"
 
 func wordLen(x: SomeInteger | Oid | Wl_object): int = 1
 
-proc marshall(msg: var Message; n: SomeUnsignedInt) =
+proc marshal(msg: var Message; n: SomeUnsignedInt) =
   assert n < uint32.high
   let posW = msg.wordPos
   msg.buf[posW] = uint32 n
   msg.wordSize = posW.succ
 
-proc marshall(msg: var Message; n: SomeSignedInt) =
+proc marshal(msg: var Message; n: SomeSignedInt) =
   assert n < int32.high
   assert n > int32.low
-  marshall(msg, cast[uint32](int32 n))
+  marshal(msg, cast[uint32](int32 n))
 
 func wordLen(s: string): int = (s.len + 4) and not(3)
 
-proc marshall(msg: var Message; s: string) =
+proc marshal(msg: var Message; s: string) =
   let
     posW = msg.wordPos
     sLenB = s.len.succ # Add one for null termination.
@@ -116,18 +137,16 @@ proc marshall(msg: var Message; s: string) =
   copyMem(msg.buf[posW.succ].addr, s[0].addr, s.len)
   msg.wordSize = msgLenW
 
-proc marshall(msg: var Message; oid: Oid) {.inline.} =
-  marshall(msg, oid.uint32)
-
-proc marshall(msg: var Message; obj: Wl_object) {.inline.} =
-  marshall(msg, obj.oid)
+proc marshal(msg: var Message; oid: Oid) {.inline.} =
+  marshal(msg, oid.uint32)
 
 template write(s: Socket; p: pointer; n: int): int =
   ## Fuck type safety theatre.
   write(s, cast[ptr UncheckedArray[byte]](p), n)
 
-proc sendRequest(client: Client; msg: Message) {.cps: Continuation.} =
-  stderr.writeLine "C: ", msg
+proc sendRequest(client: Client; msg: Message) {.asyncio.} =
+  when traceWayland:
+    stderr.writeLine "C: ", msg
   let n = msg.size
   if client.sock.write(msg.buf[0].addr, n) != n:
     raise newException(IOError, "failed to send Wayland message")
@@ -136,15 +155,21 @@ proc request(client: Client; msg: Message) =
   sendRequest(client, msg)
 
 proc request*(obj: Wl_object; op: Opcode; args: tuple) =
+  ## Send an `op` request message to `obj` with `args`.
   var totalWords = 2
   for f in fields(args):
     let n = f.wordLen
-    echo f.typeOf, " is ", n, " words in length"
     assert n > 0
     totalWords.inc n
   var msg = initMessage(obj.oid, op, totalWords)
-  for f in args.fields:
-    marshall(msg, f)
+  for arg in args.fields:
+    when arg is Wl_object:
+      if arg.client.isNil:
+        obj.client.bindObject(arg)
+      assert obj.client == arg.client
+      marshal(msg, arg.oid)
+    else:
+      marshal(msg, arg)
   assert totalWords <= msg.buf.len
   request(obj.client, msg)
 
@@ -175,6 +200,7 @@ proc unmarshal(client; msg; woff: int; warr: var seq[uint32]): int =
   copyMem(warr[0].addr, msg.buf[woff.succ].addr, warr.len shl 2)
 
 proc unmarshal*(obj; msg; args: var tuple) =
+  ## Unmarshal `args` from `msg`.
   var off = 2
   for arg in args.fields:
     when arg is Wl_object:
@@ -182,13 +208,14 @@ proc unmarshal*(obj; msg; args: var tuple) =
       off.inc
     else:
       off.inc unmarshal(obj.client, msg, off, arg)
-  echo "unmarshalled ", off, " words"
   assert (off shl 2) == msg.size
 
 method dispatchEvent(wlo: Wl_object; msg: Message) {.base.} =
+  ## Method to be generated for a protocol.
   raiseAssert "dispatchEvent not implemented for this object"
 
 proc bindObject*(client; obj: Wl_object) =
+  ## Bind `obj` to an `Oid` at `client`.
   assert obj.client.isNil
   assert client.binds.len < 0xfeffffff
   client.binds.add obj
@@ -196,6 +223,7 @@ proc bindObject*(client; obj: Wl_object) =
   obj.client = client
 
 proc newClient*: Client =
+  ## Allocate a new `Client`.
   Client(binds: newSeqOfCap[Wl_object](32))
 
 template read(s: Socket; p: pointer; n: int): int =
@@ -203,18 +231,24 @@ template read(s: Socket; p: pointer; n: int): int =
   read(s, cast[ptr UncheckedArray[byte]](p), n)
 
 proc close*(client) =
+  ## Stop event dispatching and close the socket at `client`.
   client.alive = false
   client.sock.close()
 
 proc dispatch*(client: Client) {.asyncio.} =
-  echo "dispatch client"
+  ## Dispatch events in a loop at `client`.
   var msg = Message(buf: newSeq[uint32](0x400))
   assert client.alive
   while client.alive:
     var n = client.sock.read(msg.buf[0].addr, 8)
     if n != 8:
-      raise newException(IOError, "failed to read Wayland message header")
-    stderr.writeLine "S: ", $msg
+      if n == 0:
+        client.close()
+        break
+      else:
+        raise newException(IOError, "failed to read Wayland message header")
+    when traceWayland:
+      stderr.writeLine "S: ", $msg
     let msgLen = msg.size
     if msgLen < 8:
       raise newException(IOError, "Wayland message size is too small")
@@ -231,9 +265,7 @@ proc dispatch*(client: Client) {.asyncio.} =
       client.close()
       raise newException(IOError, "Wayland event received for non-existent object")
     else:
-      echo "dispatch event ", msg.opcode
       obj.dispatchEvent(msg)
-  echo "client not alive"
 
 proc connectSocket*(client: Client; path: string) {.asyncio.} =
   ## Connect to the Wayland socket at `path`.
