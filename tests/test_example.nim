@@ -3,7 +3,6 @@
 
 import
   # pkgs/balls,
-  std/strutils,
   pkg/sys/ioqueue,
   pkg/wayland
 
@@ -14,8 +13,8 @@ type
 type
   Shm {.final.} = ref object of Wl_shm
 
-method format(shm: Shm; format: uint) =
-  echo "wl_shm format is ", format.toHex
+method format(shm: Shm; format: Wl_shm_format) =
+  echo "wl_shm format is ", format
 
 type
   Compositor {.final.} = ref object of Wl_compositor

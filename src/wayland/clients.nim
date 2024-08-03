@@ -111,12 +111,12 @@ proc initMessage(oid: Oid; op: Opcode; wordLen: int): Message =
   result.buf[0] = oid.uint32
   result.buf[1] = (8 shl 16) or op.uint32
 
-func wordLen(x: SomeInteger | Oid | Wl_object): int = 1
+func wordLen(x: SomeInteger | Oid | Wl_object | enum): int = 1
 
-proc marshal(msg: var Message; n: SomeUnsignedInt) =
-  assert n < uint32.high
+proc marshal[T: SomeUnsignedInt|enum](msg: var Message; n: T) =
   let posW = msg.wordPos
   msg.buf[posW] = uint32 n
+  assert msg.buf[posW].T == n
   msg.wordSize = posW.succ
 
 proc marshal(msg: var Message; n: SomeSignedInt) =
@@ -181,7 +181,7 @@ proc `[]`(client; oid): Wl_object =
   else:
     raise newException(KeyError, "Wayland object ID not registered locally")
 
-proc unmarshal[T: int|uint|Oid|SignedDecimal](client; msg: Message; woff: int; n: var T): int =
+proc unmarshal[T: int|uint|enum|Oid|SignedDecimal](client; msg: Message; woff: int; n: var T): int =
   result = 1
   n = msg.buf[woff].T
 
