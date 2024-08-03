@@ -62,7 +62,7 @@ proc argTypeIdent(arg: XmlNode; prefix: string): PNode =
     if faceTy != "":
       result = faceTy.capitalizeAscii.ident
     else:
-      result = ident"Oid"
+      result = ident"Wl_object"
   of "fixed":
     result = ident"SignedDecimal"
   of "array":
@@ -99,7 +99,7 @@ proc parseRequestArgs(xn: XmlNode; prefix: string): seq[RequestArg] =
     if arg.attr("type") == "new_id" and arg.attr("interface") == "":
       result.add initRequestArg("face", ident"string")
       result.add initRequestArg("version", ident"uint")
-      result.add initRequestArg("oid", ident"Oid")
+      result.add initRequestArg("oid", ident"Wl_object")
     else:
       result.add arg.parseRequestArg(prefix)
 
