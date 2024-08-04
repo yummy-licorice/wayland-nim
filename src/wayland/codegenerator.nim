@@ -4,7 +4,7 @@
 # ./wayland_codegenerator < /home/repo/wayland/protocol/wayland.xml
 
 import
-  std/[algorithm, streams, strutils, xmlparser, xmltree]
+  std/[algorithm, parseopt, streams, strutils, xmlparser, xmltree]
 
 import "$nim" / compiler/[ast, idents, renderer, lineinfos]
 
@@ -47,6 +47,17 @@ let
 var procList: seq[PNode]
 
 module.add nkImportStmt.newTree(ident"pkg/wayland/clients")
+
+for kind, key, arg in getopt():
+  case kind
+  of cmdLongOption:
+    case key
+    of "import":
+      if arg == "": quit("import:some/module/path was expected")
+      discard module.add(nkImportStmt.newTree(arg.ident))
+    else: quit("--" & key & " flag not recognized")
+  of cmdEnd: discard
+  else: quit(key & " argument not recognized")
 
 type RequestArg = object
   name: string
