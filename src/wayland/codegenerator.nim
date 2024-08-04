@@ -220,8 +220,8 @@ for face in doc.findall("interface"):
               newEmpty(),
               nkStmtList.newTree(
                   nkCall.newTree(
-                      ident"raiseAssert",
-                      newLit(faceName & "." & subnodeName & " not implemented"),
+                      ident"eventNotImplemented",
+                      newLit(faceName & "." & subnodeName),
                     )
                 )
             )

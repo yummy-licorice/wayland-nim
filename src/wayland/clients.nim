@@ -197,6 +197,7 @@ proc request(client: Client; msg: Message) =
 
 proc request*(obj: Wl_object; op: Opcode; args: tuple) =
   ## Send an `op` request message to `obj` with `args`.
+  assert(obj.oid != 0.Oid, "request object not bound")
   var totalWords = 2
   for arg in fields(args):
     when arg is FD: discard
@@ -265,6 +266,10 @@ proc unmarshal*(obj; msg; args: var tuple) =
 method dispatchEvent(wlo: Wl_object; msg: Message) {.base.} =
   ## Method to be generated for a protocol.
   raiseAssert "dispatchEvent not implemented for this object"
+
+template eventNotImplemented*(name: string) =
+  when not defined(release):
+    raiseAssert(name & " event method not implemented")
 
 proc bindObject*(client; obj: Wl_object) =
   ## Bind `obj` to an `Oid` at `client`.
