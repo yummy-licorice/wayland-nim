@@ -239,10 +239,15 @@ proc unmarshal(client; msg; woff: int; s: var string): int =
   succ((len + 3) shr 2)
 
 proc unmarshal(client; msg; woff: int; warr: var seq[uint32]): int =
-  warr.setLen(msg.buf[woff])
-  result = 1 + warr.len
-  assert msg.buf.len <= woff + result
-  copyMem(warr[0].addr, msg.buf[woff.succ].addr, warr.len shl 2)
+  var
+    bLen = msg.buf[woff].int
+    wLen = bLen shr 2
+  result = wLen.succ
+  if (bLen and 3) != 0 or woff + result > msg.buf.len:
+    raise newException(ProtocolError, "received invalid array")
+  warr.setLen(wLen)
+  if wLen > 0:
+    copyMem(warr[0].addr, msg.buf[woff.succ].addr, bLen)
 
 proc unmarshal*(obj; msg; args: var tuple) =
   ## Unmarshal `args` from `msg`.
