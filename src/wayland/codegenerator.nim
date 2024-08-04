@@ -56,7 +56,7 @@ proc argTypeIdent(arg: XmlNode; prefix: string): PNode =
   let ty = arg.attr("type")
   case ty
   of "fd":
-    result = ident"cint"
+    result = ident"FD"
   of "object", "new_id":
     var faceTy = arg.attr("interface")
     if faceTy != "":

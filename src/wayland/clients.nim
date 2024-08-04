@@ -7,6 +7,7 @@
 const traceWayland {.booldefine.}: bool = false
 
 import
+  std/posix,
   pkg/cps,
   pkg/sys/[ioqueue, sockets]
 
@@ -38,9 +39,13 @@ type
     ## It is a signed decimal type which offers a sign bit,
     ## 23 bits of integer precision and 8 bits of decimal precision.
 
+  FD* = distinct cint
+    ## "File" Descriptor.
+
   Message* = object
     ## Complete message buffer to recieve or send on a socket.
     buf: seq[uint32]
+    fds: seq[FD]
 
   ProtocolError* = object of CatchableError
     ## Exception for Wayland protocol errors.
@@ -144,12 +149,48 @@ template write(s: Socket; p: pointer; n: int): int =
   ## Fuck type safety theatre.
   write(s, cast[ptr UncheckedArray[byte]](p), n)
 
+proc sendmsg(sock: Socket; msg: ptr Tmsghdr; flags: cint): int {.asyncio.} =
+  while true:
+    result = sendmsg(sock.fd.SocketHandle, msg, flags)
+    if result < -1:
+      case errno
+      of EINTR: discard
+      of EAGAIN:
+        wait(sock.fd, Event.Write)
+      else:
+        raise newException(IOError, "sendmsg failed")
+    else:
+      return
+
 proc sendRequest(client: Client; msg: Message) {.asyncio.} =
   when traceWayland:
     stderr.writeLine "C: ", msg
   let n = msg.size
-  if client.sock.write(msg.buf[0].addr, n) != n:
-    raise newException(IOError, "failed to send Wayland message")
+  if msg.fds.len > 0:
+    var
+      fdsSize = sizeof(FD) * msg.fds.len
+      cmsgBuf = newSeq[byte](int CMSG_SPACE(csize_t fdsSize))
+      cmsgp = cast[ptr Tcmsghdr](cmsgBuf[0].addr)
+      iov = IOVec(
+          iov_base: msg.buf[0].addr,
+          iov_len: n.csize_t,
+        )
+      msgh = Tmsghdr(
+          msg_iov: iov.addr,
+          msg_iov_len: 1,
+          msg_control: cmsgBuf[0].addr,
+          msg_controllen: cmsgBuf.len.csize_t,
+        )
+    cmsgp = CMSG_FIRSTHDR(msgh.addr)
+    cmsgp.cmsg_level = SOL_SOCKET
+    cmsgp.cmsg_type = SCM_RIGHTS;
+    cmsgp.cmsg_len = CMSG_LEN(csize_t fdsSize)
+    copyMem(cast[pointer](CMSG_DATA(cmsgp)), msg.fds[0].addr, fdsSize)
+    if client.sock.sendmsg(msgh.addr, 0) != n:
+      raise newException(IOError, "failed to send Wayland message")
+  else:
+    if client.sock.write(msg.buf[0].addr, n) != n:
+      raise newException(IOError, "failed to send Wayland message")
 
 proc request(client: Client; msg: Message) =
   sendRequest(client, msg)
@@ -158,9 +199,11 @@ proc request*(obj: Wl_object; op: Opcode; args: tuple) =
   ## Send an `op` request message to `obj` with `args`.
   var totalWords = 2
   for arg in fields(args):
-    let n = arg.wordLen
-    assert n > 0
-    totalWords.inc n
+    when arg is FD: discard
+    else:
+      let n = arg.wordLen
+      assert n > 0
+      totalWords.inc n
   var msg = initMessage(obj.oid, op, totalWords)
   for arg in args.fields:
     when arg is Wl_object:
@@ -168,6 +211,8 @@ proc request*(obj: Wl_object; op: Opcode; args: tuple) =
         obj.client.bindObject(arg)
       assert obj.client == arg.client
       marshal(msg, arg.oid)
+    elif arg is FD:
+      msg.fds.add arg
     else:
       marshal(msg, arg)
   assert totalWords <= msg.buf.len
@@ -206,6 +251,8 @@ proc unmarshal*(obj; msg; args: var tuple) =
     when arg is Wl_object:
       arg = (typeof arg) obj.client[msg.buf[off].Oid]
       off.inc
+    elif arg is FD:
+      raiseAssert "FD unmarshalling not implemented"
     else:
       off.inc unmarshal(obj.client, msg, off, arg)
   assert (off shl 2) == msg.size

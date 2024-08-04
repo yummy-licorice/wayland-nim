@@ -4,7 +4,8 @@
 import
   # pkgs/balls,
   pkg/sys/ioqueue,
-  pkg/wayland
+  pkg/wayland,
+  pkg/wayland/shms
 
 type
   TestState = ref object
@@ -12,6 +13,7 @@ type
 
 type
   Shm {.final.} = ref object of Wl_shm
+    pool: ShmPool
 
 method format(shm: Shm; format: Wl_shm_format) =
   echo "wl_shm format is ", format
@@ -35,6 +37,9 @@ method global(reg: Registry; name: uint; face: string; version: uint) =
   of "wl_shm":
     var shm = Shm()
     reg.bind(name, face, version, shm)
+
+    shm.pool = newShmPool(1366 * 768 * 4 * 2)
+    shm.create_pool(shm.pool)
 
   else:
     discard
