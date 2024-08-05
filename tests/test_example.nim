@@ -8,8 +8,25 @@ import
   pkg/wayland/[globals, shared_memories, xdg_shell]
 
 const
-  width = 640
-  height = 480
+  width = 160
+  height = 120
+
+type Pcg16 = object
+  state, inc: uint32
+
+proc initPcg16: Pcg16 =
+  Pcg16(
+      state: 0xec02d89b'u32,
+      inc: 0x94b95bdb'u32,
+    )
+
+proc next(rng: var Pcg16): uint16 {.exportc.} =
+  if (rng.inc == 0): rng = initPcg16()
+  var oldState = rng.state
+  rng.state = oldState * 747796405 + rng.inc
+  var xorShifted = ((oldstate shr 10) xor oldstate) shr 12
+  var rot = int64 oldstate shr 28
+  uint16 (xorShifted shr rot) or (xorShifted shl ((-rot) and 15))
 
 type Shm {.final.} = ref object of Wl_shm
 
@@ -29,6 +46,22 @@ proc createSurface(comp: Compositor): WlSurface =
 method preferred_buffer_scale(surf: WlSurface; factor: int) =
   echo "server prefers buffer scale of ", factor
 
+type
+  PaintCallback {.final.} = ref object of Wl_callback
+    surf: WlSurface
+    rng: Pcg16
+
+method done(cb: PaintCallback; data: uint) =
+  var buf = cb.surf.buffer
+  for y in 0..<height:
+    for x in 0..<width:
+      buf[x, y] = cb.rng.next()
+  inc(cb.rng.inc, data)
+  cb.surf.attach(buf, 0, 0)
+  cb.surf.damage(0, 0, width, height)
+  cb.surf.frame(cb)
+  cb.surf.commit()
+
 type Wm {.final.} = ref object of Xdg_wm_base
 
 method ping(wm: Wm; serial: uint) =
@@ -38,6 +71,7 @@ method ping(wm: Wm; serial: uint) =
 type
   WmSurface {.final.} = ref object of Xdg_surface
     wl: WlSurface
+    active: bool
 
 proc getSurface(wm: Wm; surf: WlSurface): WmSurface =
   result = WmSurface(wl: surf)
@@ -45,15 +79,10 @@ proc getSurface(wm: Wm; surf: WlSurface): WmSurface =
 
 method configure(surf: WmSurface; serial: uint) =
   surf.ack_configure(serial)
-  let buffer = surf.wl.buffer
-  var pixel: uint16
-  for y in 0..<height:
-    for x in 0..<width:
-      buffer[x, y] = pixel
-      inc pixel
-  surf.wl.attach(buffer, 0, 0)
-  surf.wl.damage(0, 0, width, height)
-  surf.wl.commit()
+  if not surf.active:
+    surf.active = true
+    PaintCallback(surf: surf.wl).done(1)
+      # Start a runaway painting frame callback.
 
 type WmToplevel {.final.} = ref object of Xdg_toplevel
 
@@ -66,7 +95,8 @@ method wm_capabilities(toplevel: WmToplevel; ablities: seq[uint32]) =
     echo "WM supports ", Xdg_toplevel_wm_capabilities(abl), " for this surface"
 
 method configure(toplevel: WmToplevel; width, height: int; states: seq[uint32]) =
-  echo "toplevel surface would have dimensions", width, "x", height
+  for st in states:
+    echo "toplevel state ", width, "x", height, " ", Xdg_toplevel_state(st)
 
 method close(toplevel: WmToplevel) =
   quit()
@@ -80,6 +110,9 @@ type
 proc newDisplay: Display =
   ## Allocate a new `Display` object.
   new result
+
+method delete_id(disp: Display; id: uint) =
+  discard # Server will send this for the id on the frame callback.
 
 proc isReady(disp: Display): bool =
   not(disp.comp.isNil or disp.shm.isNil or disp.wm.isNil)
