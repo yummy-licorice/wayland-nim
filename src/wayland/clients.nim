@@ -8,8 +8,8 @@ const traceWayland {.booldefine.}: bool = false
 
 import
   std/posix,
-  pkg/cps,
-  pkg/sys/[ioqueue, sockets]
+  cps,
+  sys/[ioqueue, sockets]
 
 type
   Client* = ref object
