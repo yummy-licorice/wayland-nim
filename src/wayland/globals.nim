@@ -1,6 +1,6 @@
 
 import
-  pkg/wayland/clients
+  wayland/clients
 
 type
   Wl_display* = ref object of Wl_object
