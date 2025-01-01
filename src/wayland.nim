@@ -5,7 +5,7 @@
 
 import
   std/os,
-  sys/ioqueue,
+  ioqueue,
   ./wayland/[clients, globals]
 
 export clients, globals
