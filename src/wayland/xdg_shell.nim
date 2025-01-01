@@ -1,6 +1,6 @@
 
 import
-  pkg/wayland/clients
+  wayland/clients
 
 import
   globals
