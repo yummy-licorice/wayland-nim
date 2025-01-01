@@ -9,4 +9,4 @@ srcDir = "src"
 
 # Dependencies
 
-requires "nim >= 2.0.0", "https://github.com/alaviss/nim-sys", "https://github.com/nim-works/cps", "https://github.com/status-im/nim-stew"
+requires "nim >= 2.0.0", "https://github.com/yummy-licorice/nim-sys#8323fb9"
