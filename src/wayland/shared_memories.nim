@@ -19,8 +19,8 @@ type
   Buffer* {.final, acyclic.} = ref object of Wl_buffer
     ## Content for a wl_surface.
     prev: Buffer # Previous buffer in chain.
-    base: uint
-    len, width, height, stride: int
+    base*: uint
+    len*, width*, height*, stride*: int
     format: Wl_shm_format
 
   UnsafeBuffer = distinct Buffer
