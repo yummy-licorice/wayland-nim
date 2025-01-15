@@ -4,7 +4,7 @@
 ## This module implements sending requests and handling events
 ## on a Wayland socket.
 
-const traceWayland {.booldefine.}: bool = false
+const traceWayland {.booldefine.}: bool = true
 
 import
   std/posix,
